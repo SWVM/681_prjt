@@ -181,7 +181,7 @@ class SymExec():
                 # exit loop state (no body exec and continue)
                 new_env_2 = old_env.copy()
                 new_stack_2 = state.tree_traversal_stack.copy()
-                new_path_2 = state.path_taken.copy() + ["While(Skip): "+ast.unparse(next_node.test)]
+                new_path_2 = state.path_taken.copy() + ["While(Exit): "+ast.unparse(next_node.test)]
                 new_sym_state_2 = state.symbolic_state.copy() + [z3.Not(self.ast_cmp_to_z3(next_node.test, old_env))]
                 new_states.append(SymState(new_stack_2, new_path_2, new_sym_state_2, new_env_2))
             elif isinstance(next_node, ast.Break):
