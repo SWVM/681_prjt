@@ -159,7 +159,7 @@ class SymExec():
                 new_env = old_env.copy()
                 z3_ret = new_env.assign_var("fn_ret")
                 new_stack = []
-                new_path = state.path_taken.copy() + [ "Return: "+ast.unparse(next_node)]
+                new_path = state.path_taken.copy() + [f"({next_node.lineno})\t"+"Return: "+ast.unparse(next_node)]
                 new_sym_state = state.symbolic_state.copy() + [z3_ret == self.ast_expr_to_z3(next_node.value, old_env)]
                 new_states.append(SymState(new_stack, new_path, new_sym_state, new_env))
             elif isinstance(next_node, ast.Assign):
@@ -167,7 +167,7 @@ class SymExec():
                 new_env = old_env.copy()
                 new_var = new_env.assign_var(next_node.targets[0].id)
                 new_stack = state.tree_traversal_stack.copy() 
-                new_path = state.path_taken.copy() + ["Assign: "+ast.unparse(next_node)]
+                new_path = state.path_taken.copy() + [f"({next_node.lineno})\t"+"Assign: "+ast.unparse(next_node)]
                 new_sym_state = state.symbolic_state.copy() + [new_var == self.ast_expr_to_z3(next_node.value, old_env)]
                 new_states.append(SymState(new_stack, new_path, new_sym_state, new_env))
             elif isinstance(next_node, ast.While):
@@ -175,13 +175,13 @@ class SymExec():
                 # enter loop state (exec body, and return to loop entry)
                 new_env_1 = old_env.copy()
                 new_stack_1 = state.tree_traversal_stack.copy() + [next_node] + reverse_body(next_node.body)
-                new_path_1 = state.path_taken.copy() + ["While(Enter): "+ast.unparse(next_node.test)]
+                new_path_1 = state.path_taken.copy() + [f"({next_node.lineno})\t"+"While(Enter): "+ast.unparse(next_node.test)]
                 new_sym_state_1 = state.symbolic_state.copy() + [self.ast_cmp_to_z3(next_node.test, old_env)]
                 new_states.append(SymState(new_stack_1, new_path_1, new_sym_state_1, new_env_1))
                 # exit loop state (no body exec and continue)
                 new_env_2 = old_env.copy()
                 new_stack_2 = state.tree_traversal_stack.copy()
-                new_path_2 = state.path_taken.copy() + ["While(Exit): "+ast.unparse(next_node.test)]
+                new_path_2 = state.path_taken.copy() + [f"({next_node.lineno})\t"+"While(Exit): "+ast.unparse(next_node.test)]
                 new_sym_state_2 = state.symbolic_state.copy() + [z3.Not(self.ast_cmp_to_z3(next_node.test, old_env))]
                 new_states.append(SymState(new_stack_2, new_path_2, new_sym_state_2, new_env_2))
             elif isinstance(next_node, ast.Break):
@@ -195,7 +195,7 @@ class SymExec():
                     print(f"\t{poped}")
                     if isinstance(poped, ast.While):
                         break
-                new_path = state.path_taken.copy() + ["Break: "+ast.unparse(next_node)]
+                new_path = state.path_taken.copy() + [f"({next_node.lineno})\t"+"Break: "+ast.unparse(next_node)]
                 new_sym_state = state.symbolic_state.copy()
                 new_states.append(SymState(new_stack, new_path, new_sym_state, new_env))
             elif isinstance(next_node, ast.If):
@@ -203,13 +203,13 @@ class SymExec():
                 # enter if state (exec body, and return to if entry)
                 new_env_1 = old_env.copy()
                 new_stack_1 = state.tree_traversal_stack.copy() + reverse_body(next_node.body)
-                new_path_1 = state.path_taken.copy() + ["If(if): "+ast.unparse(next_node.test)]
+                new_path_1 = state.path_taken.copy() + [f"({next_node.lineno})\t"+"If(if): "+ast.unparse(next_node.test)]
                 new_sym_state_1 = state.symbolic_state.copy() + [self.ast_cmp_to_z3(next_node.test, old_env)]
                 new_states.append(SymState(new_stack_1, new_path_1, new_sym_state_1, new_env_1))
                 # else state (no body exec and continue)
                 new_env_2 = old_env.copy()
                 new_stack_2 = state.tree_traversal_stack.copy() + reverse_body(next_node.orelse)
-                new_path_2 = state.path_taken.copy() + ["If(else): "+ast.unparse(next_node.test)]
+                new_path_2 = state.path_taken.copy() + [f"({next_node.lineno})\t"+"If(else): "+ast.unparse(next_node.test)]
                 new_sym_state_2 = state.symbolic_state.copy() + [z3.Not(self.ast_cmp_to_z3(next_node.test, old_env))]
                 new_states.append(SymState(new_stack_2, new_path_2, new_sym_state_2, new_env_2))
             elif isinstance(next_node, ast.Expr):
@@ -219,7 +219,11 @@ class SymExec():
                 next_node = next_node.value
                 if next_node.func.id == "target":
                     print("Target Hit")
-                    new_states.append(SymState(state.tree_traversal_stack.copy(), state.path_taken.copy() + ["Hit Target: target()"], state.symbolic_state.copy(), state.z3_var_env.copy()))
+                    new_states.append(  SymState(   state.tree_traversal_stack.copy(), 
+                                                    state.path_taken.copy() + [f"({next_node.lineno})\t"+"Hit Target: target()"], 
+                                                    state.symbolic_state.copy(), 
+                                                    state.z3_var_env.copy()))
+                                                    
                     self.reaching_states.append(state)
                 else:
                     print("Unknown Call" + next_node.func.id)
@@ -288,6 +292,7 @@ nonterminate, terminated, unreachable, reaching_stetes =  sym_exec.explore(60, s
 for i in range(len(nonterminate)):
     print(f"State {i}")
     print(nonterminate[i].symbolic_state)
+    print("Path Taken")
     for step in nonterminate[i].path_taken:
         print(f"\t{step}")
     print(nonterminate[i].tree_traversal_stack)
@@ -299,6 +304,7 @@ for i in range(len(nonterminate)):
 for i in range(len(terminated)):
     print(f"Terminated State {i}")
     print(terminated[i].symbolic_state)
+    print("Path Taken")
     for step in terminated[i].path_taken:
         print(f"\t{step}")
     print(terminated[i].tree_traversal_stack)
@@ -310,6 +316,7 @@ for i in range(len(terminated)):
 for i in range(len(unreachable)):
     print(f"Unreachable State {i}")
     print(unreachable[i].symbolic_state)
+    print("Path Taken")
     for step in unreachable[i].path_taken:
         print(f"\t{step}")
     print(unreachable[i].tree_traversal_stack)
@@ -321,6 +328,7 @@ for i in range(len(unreachable)):
 for i in range(len(reaching_stetes)):
     print(f"Reaching State {i}")
     print(reaching_stetes[i].symbolic_state)
+    print("Path Taken")
     for step in reaching_stetes[i].path_taken:
         print(f"\t{step}")
     print(reaching_stetes[i].tree_traversal_stack)
