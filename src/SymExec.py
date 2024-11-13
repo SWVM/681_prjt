@@ -1,6 +1,17 @@
 import ast
 import z3
 from copy import deepcopy
+import logging
+from termcolor import colored
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def print_c(text, color="yellow"):
+    if not isinstance(text, str):
+        text = str(text)
+    print(colored(text, color))
+
 
 def reverse_body(body):
     body = body.copy()
@@ -11,16 +22,6 @@ def check_satisfiability(sym_state):
     solver = z3.Solver()
     solver.add(*sym_state)
     return solver.check() 
-
-def show_sat_inputs(sym_state):
-    solver = z3.Solver()
-    solver.add(*sym_state)
-    if solver.check() == z3.sat:
-        model = solver.model()
-        non_underscored_vars = {d.name(): model[d] for d in model.decls() if '_' not in d.name()}
-        print(non_underscored_vars)
-    else:
-        print("No solution found")
 
 class Z3VarEnv():
     def __init__(self):
@@ -58,12 +59,50 @@ class SymState():
         self.path_taken = path_taken
         self.symbolic_state = symbolic_state
         self.z3_var_env = z3_var_env
+
+    def print_steps(self, color="white"):
+        print_c("Path Taken", color)
+        for step in self.path_taken:
+            print_c(f"\t{step}", color)
+    
+    def print_stack(self, color="white"):
+        print_c("Stack", color)
+        print_c("\tstack Bottom", color)
+        for node in self.tree_traversal_stack:
+            print_c(f"\t{node.lineno} -- {node}", color)
+        print_c("\tstack Top", color)
+
+    def print_state(self,color="white"):
+        print_c("Symbolic State", color)
+        print_c(self.symbolic_state, color)
+        
+    def print_satisfying_assignment(self, color="white"):
+        print_c("Satisfying Assignment", color)
+        solver = z3.Solver()
+        solver.add(*self.symbolic_state)
+        if solver.check() == z3.sat:
+            model = solver.model()
+            non_underscored_vars = {d.name(): model[d] for d in model.decls() if '_' not in d.name()}
+            print_c(non_underscored_vars, "green")
+        else:
+            print_c("No satisfying assignment", "red")
+    def is_satisfiable(self):
+        return check_satisfiability(self.symbolic_state) == z3.sat
+    def is_terminated(self):
+        return len(self.tree_traversal_stack) == 0
+    
+
         
 
 
 class SymExec():
 
     def __init__(self, func):
+        if not isinstance(func, ast.FunctionDef) and isinstance(func, ast.Module):
+            func = func.body[0]
+        if not isinstance(func, ast.FunctionDef):
+            raise Exception("input is not an ast.FunctionDef OR ast.Module containing a single ast.FunctionDef")
+        
         self.func = func
         var_env = Z3VarEnv()
 
@@ -128,42 +167,69 @@ class SymExec():
         else:
             raise Exception("Unsupported AST node")
 
-    def explore(self, steps=10, stop_upon_target_hit = False):
-        if stop_upon_target_hit:
-            self.reaching_states == []
+    def find_path_to_target(self, steps=10):
+        self.reaching_states == []
         for i in range(steps):
             self.step()
-            if stop_upon_target_hit and len(self.reaching_states) > 0:
-                break
+            if len(self.reaching_states) > 0:
+                logger.info(f"<!>  Target reached after [{i}] steps... number of states explored: {len(self.states) + len(self.unreachable_states) + len(self.terminated_states)}")
+                return self.reaching_states
+        logger.info(f"<!>  Target not reached after [{steps}] steps... number of states explored: {len(self.states) + len(self.unreachable_states) + len(self.terminated_states)}")
+        return self.reaching_states
+
+    def explore(self, steps=10):
+        for i in range(steps):
+            self.step()
         return self.states, self.terminated_states, self.unreachable_states, self.reaching_states
+
+    def find_path_to_target_FROM(self, initial_state, steps=10):
+        self.states = [initial_state]
+        self.reaching_states = []
+        self.unreachable_states = []
+        self.terminated_states = []
+        return self.find_path_to_target(steps)
+
+    def explore_FROM(self, initial_state, steps=10):
+        self.states = [initial_state]
+        self.reaching_states = []
+        self.unreachable_states = []
+        self.terminated_states = []
+        return self.explore(steps)
+
 
     def step(self):
         new_states = []
         # handle states that already returned
 
         for state in self.states:
-            print(f"processing state: {state.symbolic_state}")
-            print(f"\tNodes: {state.tree_traversal_stack}")
-            if check_satisfiability(state.symbolic_state) == z3.unsat:
-                print(f"\tPath unreachable...")
-                self.unreachable_states.append(state)
+            logger.debug(f"processing state: {state.symbolic_state}")
+            logger.debug(f"\tNodes: {state.tree_traversal_stack}")
+            if not state.is_satisfiable():
+                logger.warn(f"\tPath unreachable...SKIPPING")
                 continue
-            if len(state.tree_traversal_stack) == 0:
-                print(f"\tPath terminated...")
-                self.terminated_states.append(state)
+            if state.is_terminated():
+                logger.warn(f"\tPath terminated...SKIPPING")
                 continue
+
             next_node = state.tree_traversal_stack.pop()
             old_env = state.z3_var_env
             if isinstance(next_node, ast.Return):
-                print("Return")
+                logger.debug("Return")
                 new_env = old_env.copy()
                 z3_ret = new_env.assign_var("fn_ret")
                 new_stack = []
                 new_path = state.path_taken.copy() + [f"({next_node.lineno})\t"+"Return: "+ast.unparse(next_node)]
                 new_sym_state = state.symbolic_state.copy() + [z3_ret == self.ast_expr_to_z3(next_node.value, old_env)]
                 new_states.append(SymState(new_stack, new_path, new_sym_state, new_env))
+            elif isinstance(next_node, ast.Assert):
+                logger.debug("Assert")
+                new_env = old_env.copy()
+                new_stack = state.tree_traversal_stack.copy()
+                new_path = state.path_taken.copy() + [f"({next_node.lineno})\t"+"Assert: "+ast.unparse(next_node.test)]
+                new_sym_state = state.symbolic_state.copy() + [self.ast_cmp_to_z3(next_node.test, old_env)]
+                new_states.append(SymState(new_stack, new_path, new_sym_state, new_env))
             elif isinstance(next_node, ast.Assign):
-                print("Assign") # assuming basic id = val usage
+                logger.debug("Assign") # assuming basic id = val usage
                 new_env = old_env.copy()
                 new_var = new_env.assign_var(next_node.targets[0].id)
                 new_stack = state.tree_traversal_stack.copy() 
@@ -171,7 +237,7 @@ class SymExec():
                 new_sym_state = state.symbolic_state.copy() + [new_var == self.ast_expr_to_z3(next_node.value, old_env)]
                 new_states.append(SymState(new_stack, new_path, new_sym_state, new_env))
             elif isinstance(next_node, ast.While):
-                print("While")
+                logger.debug("While")
                 # enter loop state (exec body, and return to loop entry)
                 new_env_1 = old_env.copy()
                 new_stack_1 = state.tree_traversal_stack.copy() + [next_node] + reverse_body(next_node.body)
@@ -185,21 +251,21 @@ class SymExec():
                 new_sym_state_2 = state.symbolic_state.copy() + [z3.Not(self.ast_cmp_to_z3(next_node.test, old_env))]
                 new_states.append(SymState(new_stack_2, new_path_2, new_sym_state_2, new_env_2))
             elif isinstance(next_node, ast.Break):
-                print("Break")
+                logger.debug("Break")
                 # break state (pop stack until while loop)
                 new_env = old_env.copy()
                 new_stack = state.tree_traversal_stack.copy()
-                print("poping stack")
+                logger.debug("poping stack")
                 while len(new_stack) > 0:
                     poped = new_stack.pop()
-                    print(f"\t{poped}")
+                    logger.debug(f"\t{poped}")
                     if isinstance(poped, ast.While):
                         break
                 new_path = state.path_taken.copy() + [f"({next_node.lineno})\t"+"Break: "+ast.unparse(next_node)]
                 new_sym_state = state.symbolic_state.copy()
                 new_states.append(SymState(new_stack, new_path, new_sym_state, new_env))
             elif isinstance(next_node, ast.If):
-                print("If")
+                logger.debug("If")
                 # enter if state (exec body, and return to if entry)
                 new_env_1 = old_env.copy()
                 new_stack_1 = state.tree_traversal_stack.copy() + reverse_body(next_node.body)
@@ -215,40 +281,61 @@ class SymExec():
             elif isinstance(next_node, ast.Expr):
                 # some fake func for target location, doesnt exec anything
                 assert isinstance(next_node.value, ast.Call)
-                print("Call")
+                logger.debug("Call")
                 next_node = next_node.value
                 if next_node.func.id == "target":
-                    print("Target Hit")
+                    logger.debug("Target Hit")
                     new_states.append(  SymState(   state.tree_traversal_stack.copy(), 
                                                     state.path_taken.copy() + [f"({next_node.lineno})\t"+"Hit Target: target()"], 
                                                     state.symbolic_state.copy(), 
                                                     state.z3_var_env.copy()))
-                                                    
                     self.reaching_states.append(state)
                 else:
-                    print("Unknown Call" + next_node.func.id)
+                    logger.debug("Unknown Call <" + next_node.func.id + "> Skipped")
+                    new_states.append(  SymState(   state.tree_traversal_stack.copy(), 
+                                                    state.path_taken.copy() + [f"({next_node.lineno})\t"+f"Func Call: {next_node.func.id}"], 
+                                                    state.symbolic_state.copy(), 
+                                                    state.z3_var_env.copy()))
             else:
                 raise Exception("Unsupported AST node" + str(next_node.__class__))
 
+        # filter out unreachable and terminated states
+        unreachable_states = [state for state in new_states if not state.is_satisfiable()]
+        terminated_states = [state for state in new_states if state.is_terminated() and state not in unreachable_states]
+        new_states = [state for state in new_states if state not in unreachable_states and state not in terminated_states]
+
+        self.unreachable_states.extend(unreachable_states)
+        self.terminated_states.extend(terminated_states)
         self.states = new_states
 
-        for i in range(len(self.states)):
-            print(f"\tchile[{i}]")
-            print(f"\t\tchild Path: {self.states[i].symbolic_state}")
-            print(f"\t\tchild Nodes: {self.states[i].tree_traversal_stack}")
+        logger.debug(f"New States: {len(new_states)}")
+        logger.debug(f"Unreachable States removed: {len(unreachable_states)}")
+        logger.debug(f"Terminated States removed: {len(terminated_states)}")
+
 
 if __name__ == "__main__":
 
-
     code = """
-def hit_test(x):
-    x = 0
-    while True:
-        x = x + 1
-        if x > 19:
-            break
-    target()
+def non_reachable(a):
+    i = 0
+    if a < 10:
+        while True:
+            a = a + 1
+    else:
+        target()
+    if False:
+        target()
+    return a
 """
+#     code = """
+# def hit_test(x):
+#     x = 0
+#     while True:
+#         x = x + 1
+#         if x > 19:
+#             break
+#     target()
+# """
 #    code = """
 # def cohendiv_b(x, y):
 #     q = 0           #   vassume (non-blocking && within loop body)
@@ -284,62 +371,78 @@ def hit_test(x):
 # """
 
 # Parse the code
-tree = ast.parse(code)
-sym_exec = SymExec(tree.body[0])
-nonterminate, terminated, unreachable, reaching_stetes =  sym_exec.explore(60, stop_upon_target_hit=True)
-# nonterminate, terminated, unreachable, reaching_stetes =  sym_exec.explore(60)
+    tree = ast.parse(code)
+    sym_exec = SymExec(tree.body[0])
+    nonterminate, terminated, unreachable, reaching_stetes =  sym_exec.explore(steps=3)
 
-for i in range(len(nonterminate)):
-    print(f"State {i}")
-    print(nonterminate[i].symbolic_state)
-    print("Path Taken")
-    for step in nonterminate[i].path_taken:
-        print(f"\t{step}")
-    print(nonterminate[i].tree_traversal_stack)
-    print(nonterminate[i].z3_var_env.z3_vars)
-    print("Solving...")
-    show_sat_inputs(nonterminate[i].symbolic_state)
-    print("--------------------------------------------------")
+    for i in range(len(nonterminate)):
+        print(f"State {i}")
+        nonterminate[i].print_steps()
+        nonterminate[i].print_state()
+        nonterminate[i].print_satisfying_assignment()
+        print("--------------------------------------------------")
 
-for i in range(len(terminated)):
-    print(f"Terminated State {i}")
-    print(terminated[i].symbolic_state)
-    print("Path Taken")
-    for step in terminated[i].path_taken:
-        print(f"\t{step}")
-    print(terminated[i].tree_traversal_stack)
-    print(terminated[i].z3_var_env.z3_vars)
-    print("Solving...")
-    show_sat_inputs(terminated[i].symbolic_state)
-    print("--------------------------------------------------")
+    sym_exec.find_path_to_target_FROM(nonterminate[0], steps=10)
 
-for i in range(len(unreachable)):
-    print(f"Unreachable State {i}")
-    print(unreachable[i].symbolic_state)
-    print("Path Taken")
-    for step in unreachable[i].path_taken:
-        print(f"\t{step}")
-    print(unreachable[i].tree_traversal_stack)
-    print(unreachable[i].z3_var_env.z3_vars)
-    print("Solving...")
-    show_sat_inputs(unreachable[i].symbolic_state)
-    print("--------------------------------------------------")
-
-for i in range(len(reaching_stetes)):
-    print(f"Reaching State {i}")
-    print(reaching_stetes[i].symbolic_state)
-    print("Path Taken")
-    for step in reaching_stetes[i].path_taken:
-        print(f"\t{step}")
-    print(reaching_stetes[i].tree_traversal_stack)
-    print(reaching_stetes[i].z3_var_env.z3_vars)
-    print("Solving...")
-    show_sat_inputs(reaching_stetes[i].symbolic_state)
-    print("--------------------------------------------------")
+    for i in range(len(sym_exec.unreachable_states)):
+        print(f"State {i}")
+        sym_exec.unreachable_states[i].print_steps()
+        sym_exec.unreachable_states[i].print_state()
+        sym_exec.unreachable_states[i].print_satisfying_assignment()
+        print("--------------------------------------------------")
 
 
-print("Summary")
-print(f"Non-terminated: {len(nonterminate)}")
-print(f"Terminated: {len(terminated)}")
-print(f"Unreachable: {len(unreachable)}")
-print(f"Reaching: {len(reaching_stetes)}")
+    # for i in range(len(nonterminate)):
+    #     print(f"State {i}")
+    #     print(nonterminate[i].symbolic_state)
+    #     print("Path Taken")
+    #     for step in nonterminate[i].path_taken:
+    #         print(f"\t{step}")
+    #     print(nonterminate[i].tree_traversal_stack)
+    #     print(nonterminate[i].z3_var_env.z3_vars)
+    #     print("Solving...")
+    #     show_sat_inputs(nonterminate[i].symbolic_state)
+    #     print("--------------------------------------------------")
+
+    # for i in range(len(terminated)):
+    #     print(f"Terminated State {i}")
+    #     print(terminated[i].symbolic_state)
+    #     print("Path Taken")
+    #     for step in terminated[i].path_taken:
+    #         print(f"\t{step}")
+    #     print(terminated[i].tree_traversal_stack)
+    #     print(terminated[i].z3_var_env.z3_vars)
+    #     print("Solving...")
+    #     show_sat_inputs(terminated[i].symbolic_state)
+    #     print("--------------------------------------------------")
+
+    # for i in range(len(unreachable)):
+    #     print(f"Unreachable State {i}")
+    #     print(unreachable[i].symbolic_state)
+    #     print("Path Taken")
+    #     for step in unreachable[i].path_taken:
+    #         print(f"\t{step}")
+    #     print(unreachable[i].tree_traversal_stack)
+    #     print(unreachable[i].z3_var_env.z3_vars)
+    #     print("Solving...")
+    #     show_sat_inputs(unreachable[i].symbolic_state)
+    #     print("--------------------------------------------------")
+
+    # for i in range(len(reaching_stetes)):
+    #     print(f"Reaching State {i}")
+    #     print(reaching_stetes[i].symbolic_state)
+    #     print("Path Taken")
+    #     for step in reaching_stetes[i].path_taken:
+    #         print(f"\t{step}")
+    #     print(reaching_stetes[i].tree_traversal_stack)
+    #     print(reaching_stetes[i].z3_var_env.z3_vars)
+    #     print("Solving...")
+    #     show_sat_inputs(reaching_stetes[i].symbolic_state)
+    #     print("--------------------------------------------------")
+
+
+    # print("Summary")
+    # print(f"Non-terminated: {len(nonterminate)}")
+    # print(f"Terminated: {len(terminated)}")
+    # print(f"Unreachable: {len(unreachable)}")
+    # print(f"Reaching: {len(reaching_stetes)}")
