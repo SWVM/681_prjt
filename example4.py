@@ -1,18 +1,18 @@
 def non_reachable(a,b):
-    c = 0
-    assert a > 0
+    c_ = 0
+    assert a > 3
     assert b > 0
 
     while a != 0:
-        inner = b
-        while inner != 0:
-            c = c + 1
-            inner = inner - 1
+        inner_ = b
+        while inner_ != 0:
+            c_ = c_ + 1
+            inner_ = inner_ - 1
         a = a - 1
 
-    assert c > 5
+    assert c_ > 12
     target()
-    return c
+    return c_
 
 def target():
     print("Wow, target reached!!!")
@@ -37,10 +37,10 @@ print(f"Unreachable: {len(sym_exec.unreachable_states)}")
 print(f"Terminated : {len(sym_exec.terminated_states)}")
 print(f"In-progress: {len(sym_exec.states)}")
 
-# sym_exec.unreachable_states[-5].print_state()
-# sym_exec.unreachable_states[-5].print_steps()
-# sym_exec.unreachable_states[-5].print_stack()
-# sym_exec.unreachable_states[-5].print_satisfying_assignment()
+sym_exec.reaching_states[0].print_state()
+sym_exec.reaching_states[0].print_steps()
+sym_exec.reaching_states[0].print_stack()
+sym_exec.reaching_states[0].print_satisfying_assignment()
 
-# for s in sym_exec.terminated_states:
-#     s.print_state()
+
+print(non_reachable(4,4))
