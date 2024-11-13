@@ -129,6 +129,8 @@ class SymExec():
                 return left < right
             elif isinstance(node.ops[0], ast.Eq):
                 return left == right
+            elif isinstance(node.ops[0], ast.NotEq):
+                return left != right
             else:
                 raise Exception("Unsupported AST node")
         elif isinstance(node, ast.Constant):
@@ -161,7 +163,15 @@ class SymExec():
                 right = self.ast_var_n_const(node.right, env)
             else:
                 raise Exception("Unsupported AST node")
-            return left + right
+            op = node.op
+            if isinstance(op, ast.Add):
+                return left + right
+            elif isinstance(op, ast.Sub):
+                return left - right
+            elif isinstance(op, ast.Mult):
+                return left * right
+            elif isinstance(op, ast.Div):
+                return left / right
         elif isinstance(node, (ast.Name, ast.Constant)):
             return self.ast_var_n_const(node, env)
         else:
