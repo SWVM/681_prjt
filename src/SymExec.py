@@ -1,3 +1,8 @@
+# CS681 - Project
+# Authors: Linhan Li
+# Github Copilot was used as a coding assistant for this project
+# however, I take full responsibility for the originality and accuracy of the content.
+
 import ast
 import z3
 from copy import deepcopy
@@ -12,7 +17,7 @@ def print_c(text, color="yellow"):
         text = str(text)
     print(colored(text, color))
 
-
+# reverse the body, so the execution order is correct when its pushed to the stack
 def reverse_body(body):
     body = body.copy()
     body.reverse()
@@ -23,6 +28,9 @@ def check_satisfiability(sym_state):
     solver.add(*sym_state)
     return solver.check() 
 
+
+# keeps track variable used
+# assigns a new postfixed z3 variable for each new assignment
 class Z3VarEnv():
     def __init__(self):
         self.env = {}
@@ -53,6 +61,11 @@ class Z3VarEnv():
         self.z3_vars = {}
         
         
+# The symbolic state, its defined by the following:
+# 1. The stack of AST nodes that are yet to be executed
+# 2. The path taken to reach this state
+# 3. The symbolic state, a list of z3 constraints
+# 4. The variable environment, a mapping of variable names to their z3 variables
 class SymState():
     def __init__(self, tree_traversal_stack, path_taken, symbolic_state, z3_var_env):
         self.tree_traversal_stack = tree_traversal_stack
@@ -116,6 +129,7 @@ class SymExec():
         self.terminated_states = []
         self.reaching_states = []
 
+    # convert a comparison node to z3 constraint
     def ast_cmp_to_z3(self, node, env):
         assert isinstance(node, (ast.Compare, ast.Constant, ast.UnaryOp))
         if isinstance(node, ast.Compare):
@@ -140,6 +154,7 @@ class SymExec():
             assert isinstance(node.op, ast.Not)
             return z3.Not(self.ast_cmp_to_z3(node.operand, env))
 
+    # get the z3Int of a variable or numeric constant
     def ast_var_n_const(self, node, env):
         if isinstance(node, ast.Name):
             return env.get_last_assigned(node.id)
@@ -148,6 +163,7 @@ class SymExec():
         else:
             raise Exception("Unsupported AST node")
     
+    # convert an expression to z3
     def ast_expr_to_z3(self, node, env):
         assert isinstance(node, (ast.BinOp, ast.Name, ast.Constant))
         if isinstance(node, ast.BinOp):
@@ -177,6 +193,7 @@ class SymExec():
         else:
             raise Exception("Unsupported AST node")
 
+    # find a path to the target within a number of steps from the function entry
     def find_path_to_target(self, steps=10):
         self.reaching_states == []
         for i in range(steps):
@@ -187,11 +204,14 @@ class SymExec():
         logger.info(f"<!>  Target not reached after [{steps}] steps... number of states explored: {len(self.states) + len(self.unreachable_states) + len(self.terminated_states)}")
         return self.reaching_states
 
+    # explore within a number of steps from the function entry
     def explore(self, steps=10):
         for i in range(steps):
             self.step()
         return self.states, self.terminated_states, self.unreachable_states, self.reaching_states
 
+    # explore from a given state, within a number of steps
+    # stops if the target is reached
     def find_path_to_target_FROM(self, initial_state, steps=10):
         self.states = [initial_state]
         self.reaching_states = []
@@ -199,6 +219,7 @@ class SymExec():
         self.terminated_states = []
         return self.find_path_to_target(steps)
 
+    # explore from a given state, within a number of steps
     def explore_FROM(self, initial_state, steps=10):
         self.states = [initial_state]
         self.reaching_states = []
@@ -206,11 +227,12 @@ class SymExec():
         self.terminated_states = []
         return self.explore(steps)
 
-
+    # explore one step from the current states
     def step(self):
         new_states = []
-        # handle states that already returned
 
+        # process each state to generate new states
+        # action differs based on the type of the ast.node
         for state in self.states:
             logger.debug(f"processing state: {state.symbolic_state}")
             logger.debug(f"\tNodes: {state.tree_traversal_stack}")
