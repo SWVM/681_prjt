@@ -6,12 +6,19 @@ def non_reachable(a,b):
         if a > 15:
             target()
             return a
+        else:
+            continue
+            return a
+
 
 def target():
     print("Wow, target reached!!!")
 
+couter = 0
 def trace():
-    print("looping...")
+    global couter
+    couter += 1
+    print("looping... iter: ", couter)
 
 
 ####################################################
@@ -33,7 +40,7 @@ src = inspect.getsource(non_reachable)
 func=ast.parse(src)
 sym_exec = SymExec(func)
 
-reaching_states = sym_exec.find_path_to_target(steps=50)
+reaching_states = sym_exec.find_path_to_target(steps=80)
 
 print("===============")
 print("Reaching states:")
@@ -48,3 +55,5 @@ for s in sym_exec.reaching_states:
 print("===============")
 print("Calling Func with z3 generated inputs")
 print("===============")
+# non_reachable(4,16)
+non_reachable(4,16)

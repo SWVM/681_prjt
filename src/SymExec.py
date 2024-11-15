@@ -274,6 +274,28 @@ class SymExec():
                 new_path = state.path_taken.copy() + [f"({next_node.lineno})\t"+"Break: "+ast.unparse(next_node)]
                 new_sym_state = state.symbolic_state.copy()
                 new_states.append(SymState(new_stack, new_path, new_sym_state, new_env))
+            elif isinstance(next_node, ast.Continue):
+                logger.debug("Continue")
+                # continue state (pop stack until while loop and re-enter)
+                new_env = old_env.copy()
+                new_stack = state.tree_traversal_stack.copy()
+                logger.debug("poping stack")
+                while len(new_stack) > 0:
+                    poped = new_stack.pop()
+                    logger.debug(f"\t{poped}")
+                    if isinstance(poped, ast.While):
+                        break
+                new_stack.append(poped)
+                new_path = state.path_taken.copy() + [f"({next_node.lineno})\t"+"Continue: "+ast.unparse(next_node)]
+                new_sym_state = state.symbolic_state.copy()
+                new_states.append(SymState(new_stack, new_path, new_sym_state, new_env))
+            elif isinstance(next_node, ast.Pass):
+                logger.debug("Pass")
+                # pass state (no exec and continue)
+                new_states.append(  SymState(   state.tree_traversal_stack.copy(),
+                                                state.path_taken.copy() + [f"({next_node.lineno})\t"+"Pass"],
+                                                state.symbolic_state.copy(),
+                                                state.z3_var_env.copy()))
             elif isinstance(next_node, ast.If):
                 logger.debug("If")
                 # enter if state (exec body, and return to if entry)
@@ -299,7 +321,7 @@ class SymExec():
                                                     state.path_taken.copy() + [f"({next_node.lineno})\t"+"Hit Target: target()"], 
                                                     state.symbolic_state.copy(), 
                                                     state.z3_var_env.copy()))
-                    self.reaching_states.append(state)
+                    self.reaching_states.append(new_states[-1])
                 else:
                     logger.debug("Unknown Call <" + next_node.func.id + "> Skipped")
                     new_states.append(  SymState(   state.tree_traversal_stack.copy(), 

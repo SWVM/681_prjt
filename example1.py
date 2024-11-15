@@ -4,7 +4,7 @@ def non_reachable(a):
             a = a + 1
             if a > 10:
                 target()
-                return a
+                break
     else:
         return a
 
