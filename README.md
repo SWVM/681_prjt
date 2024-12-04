@@ -7,6 +7,8 @@ conda was used for env management, the exported env is in env.yaml. I didnt use 
 good luck.
 
 
+The actual implementation is in [./src/SymExec.py](https://github.com/SWVM/681_prjt/blob/main/src/SymExec.py)
+
 ## running examples
 git clone git@github.com:SWVM/681_prjt.git
 
